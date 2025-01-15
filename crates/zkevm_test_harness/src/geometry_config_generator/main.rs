@@ -9,7 +9,7 @@ use zkevm_test_harness::capacity_estimator::{
     ecpairing_capacity, ecrecover_capacity, event_sorter_capacity, keccak256_rf_capacity,
     l1_messages_hasher_capacity, log_demuxer_capacity, main_vm_capacity, modexp_capacity,
     ram_permutation_capacity, secp256r1_verify_capacity, sha256_rf_capacity,
-    storage_application_capacity, storage_sorter_capacity, transient_storage_sorter_capacity,
+    storage_application_capacity, storage_sorter_capacity, transient_storage_sorter_capacity, ecmultipairing_naive_capacity,
 };
 use zkevm_test_harness::toolset::GeometryConfig;
 
@@ -41,6 +41,7 @@ fn all_runners() -> Vec<Box<dyn Fn() -> usize + Send>> {
         Box::new(ecadd_capacity),
         Box::new(ecmul_capacity),
         Box::new(ecpairing_capacity),
+        Box::new(ecmultipairing_naive_capacity),
     ]
 }
 
@@ -72,6 +73,7 @@ pub fn compute_config() -> GeometryConfig {
     let cycles_per_ecadd_circuit = sizes.pop().unwrap();
     let cycles_per_ecmul_circuit = sizes.pop().unwrap();
     let cycles_per_ecpairing_circuit = sizes.pop().unwrap();
+    let cycles_per_ecmultipairing_naive_circuit = sizes.pop().unwrap();
 
     assert!(sizes.is_empty());
 
@@ -94,6 +96,7 @@ pub fn compute_config() -> GeometryConfig {
         cycles_per_ecmul_circuit,
         cycles_per_ecpairing_circuit,
         limit_for_l1_messages_pudata_hasher,
+        cycles_per_ecmultipairing_naive_circuit,
     };
     config
 }
@@ -177,6 +180,10 @@ fn main() {
     function.line(format!(
         "    cycles_per_ecpairing_circuit: {},",
         computed_config.cycles_per_ecpairing_circuit
+    ));
+    function.line(format!(
+        "    cycles_per_ecmultipairing_naive_circuit: {},",
+        computed_config.cycles_per_ecmultipairing_naive_circuit
     ));
     function.line("}");
     println!("Generated config:\n {}", scope.to_string());

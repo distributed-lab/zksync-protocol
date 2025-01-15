@@ -1,5 +1,4 @@
 use arrayvec::ArrayVec;
-
 use std::collections::VecDeque;
 use std::sync::{Arc, RwLock};
 
@@ -29,7 +28,7 @@ use super::*;
 use crate::base_structures::log_query::*;
 use crate::base_structures::memory_query::*;
 use crate::base_structures::precompile_input_outputs::PrecompileFunctionOutputData;
-use crate::bn254::ec_pairing::input::{EcPairingCircuitInputOutput, EcPairingFunctionFSM};
+use crate::bn254::ec_pairing::input_alternative::{EcMultiPairingCircuitInputOutput};
 use crate::bn254::validation::{
     is_affine_infinity, is_on_curve, is_on_twist_curve, is_twist_affine_infinity, validate_in_field,
 };
@@ -47,10 +46,11 @@ use boojum::gadgets::traits::encodable::WitnessVarLengthEncodable;
 
 use self::ec_mul::implementation::convert_uint256_to_field_element;
 use self::implementation::ec_pairing;
-use self::input::EcPairingCircuitInstanceWitness;
+use self::input_alternative::EcMultiPairingCircuitInstanceWitness;
 
 
 pub const NUM_MEMORY_READS_PER_CYCLE: usize = 18;
+pub const MEMORY_QUERIES_PER_CALL: usize = 18;
 pub const EXCEPTION_FLAGS_ARR_LEN: usize = 8;
 const NUM_PAIRINGS_IN_MULTIPAIRING: usize = 3;
 #[derive(
@@ -62,7 +62,7 @@ const NUM_PAIRINGS_IN_MULTIPAIRING: usize = 3;
     WitVarLengthEncodable,
 )]
 #[derivative(Clone, Copy, Debug)]
-pub struct EcPairingPrecompileCallParams<F: SmallField> {
+pub struct EcMultiPairingPrecompileCallParams<F: SmallField> {
     pub input_page: UInt32<F>,
     pub input_offset: UInt32<F>,
     pub output_page: UInt32<F>,
@@ -70,7 +70,7 @@ pub struct EcPairingPrecompileCallParams<F: SmallField> {
     pub num_pairs: UInt32<F>,
 }
 
-impl<F: SmallField> CSPlaceholder<F> for EcPairingPrecompileCallParams<F> {
+impl<F: SmallField> CSPlaceholder<F> for EcMultiPairingPrecompileCallParams<F> {
     fn placeholder<CS: ConstraintSystem<F>>(cs: &mut CS) -> Self {
         let zero_u32 = UInt32::zero(cs);
         Self {
@@ -83,7 +83,7 @@ impl<F: SmallField> CSPlaceholder<F> for EcPairingPrecompileCallParams<F> {
     }
 }
 
-impl<F: SmallField> EcPairingPrecompileCallParams<F> {
+impl<F: SmallField> EcMultiPairingPrecompileCallParams<F> {
     pub fn from_encoding<CS: ConstraintSystem<F>>(_cs: &mut CS, encoding: UInt256<F>) -> Self {
         let input_offset = encoding.inner[0];
         let output_offset = encoding.inner[2];
@@ -207,14 +207,13 @@ where
 
     let precompile_address = UInt160::allocated_constant(
         cs,
-        *zkevm_opcode_defs::system_params::ECPAIRING_PRECOMPILE_FORMAL_ADDRESS,
+        *zkevm_opcode_defs::system_params::ECMULTIPAIRING_NAIVE_PRECOMPILE_FORMAL_ADDRESS,
     );
     let aux_byte_for_precompile = UInt8::allocated_constant(cs, PRECOMPILE_AUX_BYTE);
 
     let boolean_false = Boolean::allocated_constant(cs, false);
     let boolean_true = Boolean::allocated_constant(cs, true);
     let zero_u256 = UInt256::zero(cs);
-    let one_fq12 = BN256Fq12NNField::one(cs, &Arc::new(bn254_base_field_params()));
     let one_u32 = UInt32::allocated_constant(cs, 1u32);
     // main work cycle
     for _cycle in 0..limit {
@@ -227,7 +226,7 @@ where
         let (precompile_call, _) = precompile_calls_queue.pop_front(cs, should_process);
 
         let params_encoding = precompile_call.key;
-        let mut call_params = EcPairingPrecompileCallParams::from_encoding(cs, params_encoding);
+        let mut call_params = EcMultiPairingPrecompileCallParams::from_encoding(cs, params_encoding);
 
 
         let timestamp_to_use_for_read = precompile_call.timestamp;
@@ -332,13 +331,13 @@ where
     precompile_calls_queue.enforce_consistency(cs);
 }
 
-pub fn ecpairing_function_entry_point<
+pub fn ecmultipairing_naive_function_entry_point<
     F: SmallField,
     CS: ConstraintSystem<F>,
     R: CircuitRoundFunction<F, 8, 12, 4> + AlgebraicRoundFunction<F, 8, 12, 4>,
 >(
     cs: &mut CS,
-    witness: EcPairingCircuitInstanceWitness<F>,
+    witness: EcMultiPairingCircuitInstanceWitness<F>,
     round_function: &R,
     limit: usize,
 ) -> [Num<F>; INPUT_OUTPUT_COMMITMENT_LENGTH]
@@ -348,14 +347,16 @@ where
     [(); <UInt256<F> as CSAllocatableExt<F>>::INTERNAL_STRUCT_LEN]:,
     [(); <UInt256<F> as CSAllocatableExt<F>>::INTERNAL_STRUCT_LEN + 1]:,
 {
-    let EcPairingCircuitInstanceWitness {
+    let EcMultiPairingCircuitInstanceWitness {
         closed_form_input,
         requests_queue_witness,
         memory_reads_witness,
     } = witness;
-    
+
+    let memory_reads_witness: VecDeque<_> = memory_reads_witness.into_iter().flatten().collect();
+
     let mut structured_input =
-        EcPairingCircuitInputOutput::alloc_ignoring_outputs(cs, closed_form_input.clone());
+        EcMultiPairingCircuitInputOutput::alloc_ignoring_outputs(cs, closed_form_input.clone());
 
     let start_flag = structured_input.start_flag;
 
