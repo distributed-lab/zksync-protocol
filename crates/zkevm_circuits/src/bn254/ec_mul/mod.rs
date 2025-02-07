@@ -3,12 +3,10 @@ use std::collections::VecDeque;
 use std::sync::{Arc, RwLock};
 
 use boojum::algebraic_props::round_function::AlgebraicRoundFunction;
-use boojum::crypto_bigint::Zero;
 use boojum::cs::gates::PublicInputGate;
 use boojum::cs::traits::cs::ConstraintSystem;
 use boojum::field::SmallField;
 use boojum::gadgets::boolean::Boolean;
-use boojum::gadgets::non_native_field::implementations::*;
 use boojum::gadgets::num::Num;
 use boojum::gadgets::queue::CircuitQueueWitness;
 use boojum::gadgets::queue::QueueState;
@@ -20,7 +18,6 @@ use boojum::gadgets::u160::UInt160;
 use boojum::gadgets::u256::UInt256;
 use boojum::gadgets::u32::UInt32;
 use boojum::gadgets::u8::UInt8;
-use boojum::pairing::CurveAffine;
 use cs_derive::*;
 use derivative::Derivative;
 use zkevm_opcode_defs::system_params::PRECOMPILE_AUX_BYTE;
@@ -28,6 +25,10 @@ use zkevm_opcode_defs::system_params::PRECOMPILE_AUX_BYTE;
 use crate::base_structures::log_query::*;
 use crate::base_structures::memory_query::*;
 use crate::base_structures::precompile_input_outputs::PrecompileFunctionOutputData;
+use crate::bn254::conversion::{
+    convert_field_element_to_uint256, convert_uint256_to_field_element,
+};
+use crate::bn254::ec_mul::implementation::mul;
 use crate::bn254::ec_mul::input::EcMulCircuitInputOutput;
 use crate::bn254::validation::{is_affine_infinity, is_on_curve, validate_in_field};
 use crate::demux_log_queue::StorageLogQueue;
@@ -38,10 +39,6 @@ use crate::storage_application::ConditionalWitnessAllocator;
 
 use super::*;
 
-use self::implementation::{
-    convert_field_element_to_uint256, convert_uint256_to_field_element,
-    width_4_windowed_multiplication,
-};
 use self::input::EcMulCircuitInstanceWitness;
 
 pub mod implementation;
@@ -113,10 +110,9 @@ fn ecmul_precompile_inner<F: SmallField, CS: ConstraintSystem<F>>(
     let [scalar] = scalar.into_inner().unwrap();
     let scalar = convert_uint256_to_field_element(cs, &scalar, scalar_field_params);
 
-    let mut result =
-        width_4_windowed_multiplication(cs, point, scalar, base_field_params, scalar_field_params);
+    let mut result = mul(cs, point, scalar);
 
-    let ((mut x, mut y), _) = result.convert_to_affine_or_default(cs, BN256Affine::zero());
+    let (mut x, mut y) = result;
 
     x.normalize(cs);
     let x = convert_field_element_to_uint256(cs, x);

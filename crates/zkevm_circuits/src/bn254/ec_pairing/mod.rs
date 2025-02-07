@@ -24,10 +24,13 @@ use cs_derive::*;
 use derivative::Derivative;
 use zkevm_opcode_defs::system_params::PRECOMPILE_AUX_BYTE;
 
+use self::implementation::ec_pairing;
+use self::input::EcPairingCircuitInstanceWitness;
 use super::*;
 use crate::base_structures::log_query::*;
 use crate::base_structures::memory_query::*;
 use crate::base_structures::precompile_input_outputs::PrecompileFunctionOutputData;
+use crate::bn254::conversion::convert_uint256_to_field_element;
 use crate::bn254::ec_pairing::input::{EcPairingCircuitInputOutput, EcPairingFunctionFSM};
 use crate::bn254::validation::{
     is_affine_infinity, is_on_curve, is_on_twist_curve, is_twist_affine_infinity, validate_in_field,
@@ -43,10 +46,6 @@ use boojum::gadgets::tower_extension::fq12::Fq12;
 use boojum::gadgets::traits::allocatable::CSAllocatable;
 use boojum::gadgets::traits::encodable::CircuitVarLengthEncodable;
 use boojum::gadgets::traits::encodable::WitnessVarLengthEncodable;
-
-use self::ec_mul::implementation::convert_uint256_to_field_element;
-use self::implementation::ec_pairing;
-use self::input::EcPairingCircuitInstanceWitness;
 
 pub mod final_exp;
 pub mod implementation;

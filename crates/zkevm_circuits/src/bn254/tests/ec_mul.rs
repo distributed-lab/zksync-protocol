@@ -18,9 +18,7 @@ pub mod test {
         Xor8Table,
     };
 
-    use crate::bn254::ec_mul::implementation::{
-        width_4_windowed_multiplication, ScalarDecomposition,
-    };
+    use crate::bn254::ec_mul::r#mod::{width_4_windowed_multiplication, ScalarDecomposition};
     use crate::bn254::fixed_base_mul_table::{create_fixed_base_mul_table, FixedBaseMulTable};
     use crate::bn254::tests::json::{DECOMPOSITION_TEST_CASES, EC_MUL_TEST_CASES};
     use crate::bn254::tests::utils::assert::assert_equal_g1_points;
