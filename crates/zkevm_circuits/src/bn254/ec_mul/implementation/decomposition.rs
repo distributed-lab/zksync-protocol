@@ -5,20 +5,16 @@ use super::utils::{
     allocate_scalar_from_bigint, allocate_scalar_from_bn254_fr, bigint_to_bn254_fr,
     bn254_fr_to_bigint,
 };
-use super::NUM_MULTIPLICATION_STEPS_FOR_WIDTH_4;
 
 use boojum::cs::traits::cs::ConstraintSystem;
 use boojum::field::SmallField;
 use boojum::gadgets::boolean::Boolean;
 use boojum::gadgets::num::Num;
-use boojum::gadgets::tables::ByteSplitTable;
 use boojum::gadgets::traits::allocatable::CSAllocatable;
-use boojum::gadgets::traits::witnessable::CSWitnessable;
-use boojum::gadgets::u16::UInt16;
 use boojum::pairing::ff::{Field, PrimeField};
-
-use crate::main_vm::decoded_opcode::reg_idx_into_bitspread;
+use boojum::cs::Variable;
 use boojum::field::traits::field_like::PrimeFieldLike;
+
 use lazy_static::lazy_static;
 use num_bigint::BigInt;
 use num_traits::Signed;
@@ -169,10 +165,10 @@ where
 
 #[derive(Debug, Clone)]
 pub(super) struct BitScalarDecomposition<F: SmallField> {
-    pub u0_bits: Vec<Num<F>>,
-    pub u1_bits: Vec<Num<F>>,
-    pub v0_bits: Vec<Num<F>>,
-    pub v1_bits: Vec<Num<F>>,
+    pub u0_bits: Vec<Boolean<F>>,
+    pub u1_bits: Vec<Boolean<F>>,
+    pub v0_bits: Vec<Boolean<F>>,
+    pub v1_bits: Vec<Boolean<F>>,
 }
 
 impl<F: SmallField> BitScalarDecomposition<F> {
@@ -193,11 +189,25 @@ impl<F: SmallField> BitScalarDecomposition<F> {
         }
     }
 
-    fn scalar_to_bits<CS>(cs: &mut CS, scalar: BN256ScalarNNField<F>) -> Vec<Num<F>>
+    fn scalar_to_bits<CS>(cs: &mut CS, scalar: BN256ScalarNNField<F>) -> Vec<Boolean<F>>
     where
         CS: ConstraintSystem<F>,
     {
-        todo!()
+        // we know that width is 64 bits, so just do BE decomposition and put into resulting array
+        let zero_num = Num::zero(cs);
+        for word in scalar.limbs[5..].iter() {
+            let word = Num::from_variable(*word);
+            Num::enforce_equal(cs, &word, &zero_num);
+        }
+
+        let mut result = Vec::with_capacity(64);
+        for word in scalar.limbs[..4].iter() {
+            let word = Num::from_variable(*word);
+            let bits: [Boolean<F>; 16] = word.spread_into_bits(cs);
+            result.append(&mut bits.to_vec());
+        }
+
+        result
     }
 
     /// Compose 3-bit index from scalar bit decomposition at `i`.
@@ -211,8 +221,8 @@ impl<F: SmallField> BitScalarDecomposition<F> {
         let two = Num::allocated_constant(cs, F::from_raw_u64_unchecked(2));
         let fifteen = Num::allocated_constant(cs, F::from_raw_u64_unchecked(15));
 
-        let p1 = self.v1_bits[i].mul(cs, &two);
-        let p2 = self.v1_bits[i].mul(cs, &fifteen);
+        let p1 = self.v1_bits[i].into_num().mul(cs, &two);
+        let p2 = self.v1_bits[i].into_num().mul(cs, &fifteen);
 
         // 1 - v1[i] * 2
         let p3 = one.sub(cs, &p1);
@@ -229,13 +239,12 @@ impl<F: SmallField> BitScalarDecomposition<F> {
     where
         CS: ConstraintSystem<F>,
     {
-        let parts: [Num<F>; 4] = [
-            self.u0_bits[i],
-            self.u1_bits[i],
-            self.v0_bits[i],
-            self.v1_bits[i],
+        let parts: [Variable; 4] = [
+            self.u0_bits[i].get_variable(),
+            self.u1_bits[i].get_variable(),
+            self.v0_bits[i].get_variable(),
+            self.v1_bits[i].get_variable(),
         ];
-        let parts = parts.as_variables_set();
 
         let input = [
             (parts[0], F::from_raw_u64_unchecked(1)),

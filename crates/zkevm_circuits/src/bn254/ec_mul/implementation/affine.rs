@@ -8,12 +8,28 @@ use boojum::field::SmallField;
 use boojum::gadgets::boolean::Boolean;
 use boojum::gadgets::non_native_field::traits::NonNativeField;
 use boojum::gadgets::traits::witnessable::WitnessHookable;
-use boojum::pairing::ff::Field;
+use boojum::pairing::ff::{Field, PrimeField};
 use boojum::pairing::{CurveAffine, CurveProjective};
 
-use boojum::gadgets::num::Num;
+use lazy_static::lazy_static;
 use std::sync::Arc;
 
+lazy_static! {
+    /// [64 + 9 - 1] * G
+    static ref GM: (BN256Fq, BN256Fq) = (
+        BN256Fq::from_str(
+            "20947751279411573967585707957796076884838306892329084570991215098141587145326"
+        )
+        .unwrap(),
+        BN256Fq::from_str(
+            "10881143085651043635655119061072151249898091434241810000875579880240699672420"
+        )
+        .unwrap(),
+    );
+}
+
+/// Computes `a + b`.
+/// Based on https://arxiv.org/pdf/math/0208038 (Section 3.1)
 pub(super) unsafe fn add<F, CS>(
     cs: &mut CS,
     a: &(BN256BaseNNField<F>, BN256BaseNNField<F>),
@@ -23,23 +39,23 @@ where
     F: SmallField,
     CS: ConstraintSystem<F>,
 {
-    let mut a = a.clone();
-    let mut b = b.clone();
+    let (mut x1, mut y1) = a.clone();
+    let (mut x2, mut y2) = b.clone();
 
-    let mut dx = a.0.sub(cs, &mut b.0);
-    let mut dy = a.1.sub(cs, &mut b.1);
+    let mut dx = x1.sub(cs, &mut x2);
+    let mut dy = y1.sub(cs, &mut y2);
 
-    let mut slope = dy.div_unchecked(cs, &mut dx);
+    let mut lambda = dy.div_unchecked(cs, &mut dx);
 
-    let mut x = slope.clone().square(cs);
-    x = x.sub(cs, &mut a.0);
-    x = x.sub(cs, &mut b.0);
+    let mut x3 = lambda.clone().square(cs);
+    x3 = x3.sub(cs, &mut x1);
+    x3 = x3.sub(cs, &mut x2);
 
-    let mut y = a.0.sub(cs, &mut x);
-    y = slope.mul(cs, &mut y);
-    y = y.sub(cs, &mut a.1);
+    let mut y3 = x1.sub(cs, &mut x3);
+    y3 = lambda.mul(cs, &mut y3);
+    y3 = y3.sub(cs, &mut y1);
 
-    (x, y)
+    (x3, y3)
 }
 
 #[inline(always)]
@@ -134,10 +150,17 @@ where
     F: SmallField,
     CS: ConstraintSystem<F>,
 {
-    g(cs) // todo!
+    let (x, y) = *GM;
+
+    let params = Arc::new(bn254_base_field_params());
+    let x = BN256BaseNNField::allocated_constant(cs, x, &params);
+    let y = BN256BaseNNField::allocated_constant(cs, y, &params);
+
+    (x, y)
 }
 
-/// 2a + b
+/// Computes `2a + b`.
+/// Based on https://arxiv.org/pdf/math/0208038 (Section 3.1)
 pub(super) unsafe fn double_and_add<F, CS>(
     cs: &mut CS,
     a: &(BN256BaseNNField<F>, BN256BaseNNField<F>),
@@ -147,12 +170,37 @@ where
     F: SmallField,
     CS: ConstraintSystem<F>,
 {
-    todo!()
+    let (mut x1, mut y1) = a.clone();
+    let (mut x2, mut y2) = b.clone();
+
+    let mut dx = x1.sub(cs, &mut x2);
+    let mut dy = y1.sub(cs, &mut y2);
+
+    let mut lambda1 = dy.div_unchecked(cs, &mut dx);
+
+    let mut x3 = lambda1.clone().square(cs);
+    x3 = x3.sub(cs, &mut x1);
+    x3 = x3.sub(cs, &mut x2);
+
+    let mut dx = x1.sub(cs, &mut x3);
+    let mut dy = y1.double(cs);
+    let mut lambda2 = dy.div_unchecked(cs, &mut dx);
+    lambda2 = lambda1.sub(cs, &mut lambda2);
+    lambda2 = lambda2.negated(cs);
+
+    let mut x4 = lambda2.clone().square(cs);
+    x4 = x4.add(cs, &mut dx);
+
+    let mut y4 = x1.sub(cs, &mut x4);
+    y4 = y4.mul(cs, &mut lambda2);
+    y4 = y4.sub(cs, &mut y1);
+
+    (x4, y4)
 }
 
 pub(super) fn conditionally_select<F, CS>(
     cs: &mut CS,
-    flag: &Num<F>,
+    flag: Boolean<F>,
     a: &(BN256BaseNNField<F>, BN256BaseNNField<F>),
     b: &(BN256BaseNNField<F>, BN256BaseNNField<F>),
 ) -> (BN256BaseNNField<F>, BN256BaseNNField<F>)
