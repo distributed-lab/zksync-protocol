@@ -98,11 +98,11 @@ fn ecmul_precompile_inner<F: SmallField, CS: ConstraintSystem<F>>(
     let point_on_curve = is_on_curve(cs, (&x, &y), base_field_params);
     let point_is_valid = point_on_curve.or(cs, point_is_infinity);
 
-    // Mask the point with zero in case it is not on curve.
-    let zero = BN256SWProjectivePoint::zero(cs, base_field_params);
+    // Mask the point with one in case it is not on curve.
+    let one = BN256SWProjectivePoint::one(cs, base_field_params);
     let unchecked_point = BN256SWProjectivePoint::from_xy_unchecked(cs, x, y);
     let point =
-        BN256SWProjectivePoint::conditionally_select(cs, point_on_curve, &unchecked_point, &zero);
+        BN256SWProjectivePoint::conditionally_select(cs, point_on_curve, &unchecked_point, &one);
 
     // Scalar is masked with zero in-place if it is not in field.
     let mut scalar = ArrayVec::from([*scalar]);
@@ -110,7 +110,7 @@ fn ecmul_precompile_inner<F: SmallField, CS: ConstraintSystem<F>>(
     let [scalar] = scalar.into_inner().unwrap();
     let scalar = convert_uint256_to_field_element(cs, &scalar, scalar_field_params);
 
-    let mut result = mul(cs, point, scalar);
+    let result = mul(cs, point, scalar);
 
     let (mut x, mut y) = result;
 

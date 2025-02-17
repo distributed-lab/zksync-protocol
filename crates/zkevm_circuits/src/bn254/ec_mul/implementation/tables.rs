@@ -1,4 +1,4 @@
-use super::affine::{add, conditioned_negate, negate, phi};
+use super::affine::{add, conditioned_negate, negate, phi, Affine};
 use super::decomposition::ScalarDecomposition;
 use super::utils::{allocate_base_from_bn254_fq, mux_16, mux_8};
 
@@ -8,6 +8,7 @@ use boojum::cs::traits::cs::ConstraintSystem;
 use boojum::field::SmallField;
 use boojum::gadgets::num::Num;
 use boojum::pairing::ff::PrimeField;
+
 use lazy_static::lazy_static;
 
 lazy_static! {
@@ -18,25 +19,23 @@ lazy_static! {
     static ref BETA: BN256Fq = BN256Fq::from_str("2203960485148121921418603742825762020974279258880205651966").unwrap();
 }
 
-type Affine<F> = (BN256BaseNNField<F>, BN256BaseNNField<F>);
-
 pub(super) struct Precomputations<F: SmallField> {
     /// -P, P
-    pub(super) table_p: Vec<Affine<F>>,
+    pub(super) table_p: [Affine<F>; 2],
     /// -Q, Q
-    pub(super) table_q: Vec<Affine<F>>,
+    pub(super) table_q: [Affine<F>; 2],
     /// -φ(P), φ(P)
-    pub(super) table_phi_p: Vec<Affine<F>>,
+    pub(super) table_phi_p: [Affine<F>; 2],
     /// -φ(Q), φ(Q)
-    pub(super) table_phi_q: Vec<Affine<F>>,
+    pub(super) table_phi_q: [Affine<F>; 2],
 
     /// -P-Q, P+Q, P-Q, -P+Q
-    table_s: Vec<Affine<F>>,
+    table_s: [Affine<F>; 4],
     /// -φ(P)-φ(Q), φ(P)+φ(Q), φ(P)-φ(Q), -φ(P)+φ(Q)
-    table_phi_s: Vec<Affine<F>>,
+    table_phi_s: [Affine<F>; 4],
 
     /// ±P ± Q ± φ(P) ± φ(Q)
-    pub(super) combinations: Vec<Affine<F>>,
+    pub(super) combinations: [Affine<F>; 16],
 }
 
 impl<F: SmallField> Precomputations<F> {
@@ -73,16 +72,16 @@ impl<F: SmallField> Precomputations<F> {
         p: &Affine<F>,
         q: &Affine<F>,
         decomposition: &ScalarDecomposition<F>,
-    ) -> (Vec<Affine<F>>, Vec<Affine<F>>)
+    ) -> ([Affine<F>; 2], [Affine<F>; 2])
     where
         CS: ConstraintSystem<F>,
     {
         let p = conditioned_negate(cs, decomposition.u0.1, &p);
-        let q = conditioned_negate(cs, decomposition.v1.1, &q);
+        let q = conditioned_negate(cs, decomposition.v0.1, &q);
         let neg_p = negate(cs, &p);
         let neg_q = negate(cs, &q);
 
-        (vec![neg_p, p], vec![neg_q, q])
+        ([neg_p, p], [neg_q, q])
     }
 
     fn compute_tables_phi_p_phi_q<CS>(
@@ -90,7 +89,7 @@ impl<F: SmallField> Precomputations<F> {
         p: &Affine<F>,
         q: &Affine<F>,
         decomposition: &ScalarDecomposition<F>,
-    ) -> (Vec<Affine<F>>, Vec<Affine<F>>)
+    ) -> ([Affine<F>; 2], [Affine<F>; 2])
     where
         CS: ConstraintSystem<F>,
     {
@@ -104,80 +103,76 @@ impl<F: SmallField> Precomputations<F> {
         let neg_phi_p = negate(cs, &phi_p);
         let neg_phi_q = negate(cs, &phi_q);
 
-        (vec![neg_phi_p, phi_p], vec![neg_phi_q, phi_q])
+        ([neg_phi_p, phi_p], [neg_phi_q, phi_q])
     }
 
     fn compute_table_s<CS>(
         cs: &mut CS,
-        table_p: &Vec<Affine<F>>,
-        table_q: &Vec<Affine<F>>,
-    ) -> Vec<Affine<F>>
+        table_p: &[Affine<F>; 2],
+        table_q: &[Affine<F>; 2],
+    ) -> [Affine<F>; 4]
     where
         CS: ConstraintSystem<F>,
     {
-        let mut table_s = vec![];
-
         // -P-Q, P+Q, P-Q, -P+Q
-        table_s.push(unsafe { add(cs, &table_p[0], &table_q[0]) });
-        table_s.push(negate(cs, &table_s[0]));
-        table_s.push(unsafe { add(cs, &table_p[0], &table_q[1]) });
-        table_s.push(negate(cs, &table_s[2]));
+        let s0 = unsafe { add(cs, &table_p[0], &table_q[0]) };
+        let s1 = negate(cs, &s0);
+        let s2 = unsafe { add(cs, &table_p[1], &table_q[0]) };
+        let s3 = negate(cs, &s2);
 
-        table_s
+        [s0, s1, s2, s3]
     }
 
     fn compute_table_phi_s<CS>(
         cs: &mut CS,
-        table_phi_p: &Vec<Affine<F>>,
-        table_phi_q: &Vec<Affine<F>>,
-    ) -> Vec<Affine<F>>
+        table_phi_p: &[Affine<F>; 2],
+        table_phi_q: &[Affine<F>; 2],
+    ) -> [Affine<F>; 4]
     where
         CS: ConstraintSystem<F>,
     {
         // -φ(P)-φ(Q), φ(P)+φ(Q), φ(P)-φ(Q), -φ(P)+φ(Q)
-        let mut table_phi_s = vec![];
+        let phi_s0 = unsafe { add(cs, &table_phi_p[0], &table_phi_q[0]) };
+        let phi_s1 = negate(cs, &phi_s0);
+        let phi_s2 = unsafe { add(cs, &table_phi_p[1], &table_phi_q[0]) };
+        let phi_s3 = negate(cs, &phi_s2);
 
-        table_phi_s.push(unsafe { add(cs, &table_phi_p[0], &table_phi_q[0]) });
-        table_phi_s.push(negate(cs, &table_phi_s[0]));
-        table_phi_s.push(unsafe { add(cs, &table_phi_p[0], &table_phi_q[1]) });
-        table_phi_s.push(negate(cs, &table_phi_s[2]));
-
-        table_phi_s
+        [phi_s0, phi_s1, phi_s2, phi_s3]
     }
 
     fn compute_combinations<CS>(
         cs: &mut CS,
-        table_s: &Vec<Affine<F>>,
-        table_phi_s: &Vec<Affine<F>>,
-    ) -> Vec<Affine<F>>
+        table_s: &[Affine<F>; 4],
+        table_phi_s: &[Affine<F>; 4],
+    ) -> [Affine<F>; 16]
     where
         CS: ConstraintSystem<F>,
     {
-        let b1 = unsafe { add(cs, &table_s[1], &table_phi_s[1]) }; // +P + Q + φ(P) + φ(Q)
-        let b2 = unsafe { add(cs, &table_s[1], &table_phi_s[2]) }; // +P + Q + φ(P) - φ(Q)
-        let b3 = unsafe { add(cs, &table_s[1], &table_phi_s[3]) }; // +P + Q - φ(P) + φ(Q)
-        let b4 = unsafe { add(cs, &table_s[1], &table_phi_s[0]) }; // +P + Q - φ(P) - φ(Q)
-        let b5 = unsafe { add(cs, &table_s[2], &table_phi_s[1]) }; // +P - Q + φ(P) + φ(Q)
-        let b6 = unsafe { add(cs, &table_s[2], &table_phi_s[2]) }; // +P - Q + φ(P) - φ(Q)
-        let b7 = unsafe { add(cs, &table_s[2], &table_phi_s[3]) }; // +P - Q - φ(P) + φ(Q)
-        let b8 = unsafe { add(cs, &table_s[2], &table_phi_s[0]) }; // +P - Q - φ(P) - φ(Q)
-        let b9 = negate(cs, &b8); //  -P + Q + φ(P) + φ(Q)
-        let b10 = negate(cs, &b7); // -P + Q + φ(P) - φ(Q)
-        let b11 = negate(cs, &b6); // -P + Q - φ(P) + φ(Q)
-        let b12 = negate(cs, &b5); // -P + Q - φ(P) - φ(Q)
-        let b13 = negate(cs, &b4); // -P - Q + φ(P) + φ(Q)
-        let b14 = negate(cs, &b3); // -P - Q + φ(P) - φ(Q)
-        let b15 = negate(cs, &b2); // -P - Q - φ(P) + φ(Q)
-        let b16 = negate(cs, &b1); // -P - Q - φ(P) - φ(Q)
+        let c0 = unsafe { add(cs, &table_s[1], &table_phi_s[1]) }; // +P + Q + φ(P) + φ(Q)
+        let c1 = unsafe { add(cs, &table_s[1], &table_phi_s[2]) }; // +P + Q + φ(P) - φ(Q)
+        let c2 = unsafe { add(cs, &table_s[1], &table_phi_s[3]) }; // +P + Q - φ(P) + φ(Q)
+        let c3 = unsafe { add(cs, &table_s[1], &table_phi_s[0]) }; // +P + Q - φ(P) - φ(Q)
+        let c4 = unsafe { add(cs, &table_s[2], &table_phi_s[1]) }; // +P - Q + φ(P) + φ(Q)
+        let c5 = unsafe { add(cs, &table_s[2], &table_phi_s[2]) }; // +P - Q + φ(P) - φ(Q)
+        let c6 = unsafe { add(cs, &table_s[2], &table_phi_s[3]) }; // +P - Q - φ(P) + φ(Q)
+        let c7 = unsafe { add(cs, &table_s[2], &table_phi_s[0]) }; // +P - Q - φ(P) - φ(Q)
+        let c8 = negate(cs, &c7); //  -P + Q + φ(P) + φ(Q)
+        let c9 = negate(cs, &c6); //  -P + Q + φ(P) - φ(Q)
+        let c10 = negate(cs, &c5); // -P + Q - φ(P) + φ(Q)
+        let c11 = negate(cs, &c4); // -P + Q - φ(P) - φ(Q)
+        let c12 = negate(cs, &c3); // -P - Q + φ(P) + φ(Q)
+        let c13 = negate(cs, &c2); // -P - Q + φ(P) - φ(Q)
+        let c14 = negate(cs, &c1); // -P - Q - φ(P) + φ(Q)
+        let c15 = negate(cs, &c0); // -P - Q - φ(P) - φ(Q)
 
-        vec![
-            b1, b2, b3, b4, b5, b6, b7, b8, b9, b10, b11, b12, b13, b14, b15, b16,
+        [
+            c0, c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15,
         ]
     }
 
     /// Returns `x` coordinate of the `combinations[x_selector]` point.
+    /// Since first half of 16 `combinations` has same `x` coordinate as second,
     /// `x_selector` may take values in range [0; 7].
-    /// First half of 16 `combinations` has same `x` coordinate as second.
     pub(super) fn select_x_from_combinations<CS>(
         &self,
         cs: &mut CS,
@@ -186,10 +181,19 @@ impl<F: SmallField> Precomputations<F> {
     where
         CS: ConstraintSystem<F>,
     {
-        let combinations_x: Vec<&BN256BaseNNField<F>> =
-            self.combinations.iter().take(8).map(|(x, _)| x).collect();
+        // Order is based on ±P, ±φ(P), ±Q, ±φ(Q)
+        let combinations_x = [
+            &self.combinations[15].0,
+            &self.combinations[7].0,
+            &self.combinations[13].0,
+            &self.combinations[5].0,
+            &self.combinations[11].0,
+            &self.combinations[3].0,
+            &self.combinations[9].0,
+            &self.combinations[1].0,
+        ];
 
-        mux_8(cs, &x_selector, &combinations_x)
+        mux_8(cs, &x_selector, combinations_x)
     }
 
     /// Returns `y` coordinate of the `combinations[y_selector]` point.
@@ -202,9 +206,26 @@ impl<F: SmallField> Precomputations<F> {
     where
         CS: ConstraintSystem<F>,
     {
-        let combinations_y: Vec<&BN256BaseNNField<F>> =
-            self.combinations.iter().map(|(_, y)| y).collect();
+        // Order is based on ±P, ±φ(P), ±Q, ±φ(Q)
+        let combinations_y = [
+            &self.combinations[15].1,
+            &self.combinations[7].1,
+            &self.combinations[13].1,
+            &self.combinations[5].1,
+            &self.combinations[11].1,
+            &self.combinations[3].1,
+            &self.combinations[9].1,
+            &self.combinations[1].1,
+            &self.combinations[14].1,
+            &self.combinations[6].1,
+            &self.combinations[12].1,
+            &self.combinations[4].1,
+            &self.combinations[10].1,
+            &self.combinations[2].1,
+            &self.combinations[8].1,
+            &self.combinations[0].1,
+        ];
 
-        mux_16(cs, &y_selector, &combinations_y)
+        mux_16(cs, &y_selector, combinations_y)
     }
 }

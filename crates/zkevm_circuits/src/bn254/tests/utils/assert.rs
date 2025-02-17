@@ -1,6 +1,6 @@
 use crate::bn254::{
-    BN256Affine, BN256Fq12NNField, BN256Fq2NNField, BN256Fq6NNField, BN256SWProjectivePoint,
-    BN256SWProjectivePointTwisted,
+    BN256Affine, BN256BaseNNField, BN256Fq12NNField, BN256Fq2NNField, BN256Fq6NNField,
+    BN256SWProjectivePoint, BN256SWProjectivePointTwisted,
 };
 use boojum::cs::traits::cs::ConstraintSystem;
 use boojum::field::goldilocks::GoldilocksField;
@@ -10,6 +10,24 @@ use boojum::pairing::bn256::G2Affine;
 use boojum::pairing::CurveAffine;
 
 type F = GoldilocksField;
+
+pub(in super::super) fn assert_equal_g1_points_affine<CS>(
+    cs: &mut CS,
+    (x1, y1): (BN256BaseNNField<F>, BN256BaseNNField<F>),
+    (x2, y2): (BN256BaseNNField<F>, BN256BaseNNField<F>),
+) where
+    CS: ConstraintSystem<F>,
+{
+    // Enforcing x coordinates to be equal
+    let x1 = x1.witness_hook(cs)().unwrap().get();
+    let x2 = x2.witness_hook(cs)().unwrap().get();
+    assert_eq!(x1, x2, "x coordinates are not equal");
+
+    // Enforcing y coordinates to be equal
+    let y1 = y1.witness_hook(cs)().unwrap().get();
+    let y2 = y2.witness_hook(cs)().unwrap().get();
+    assert_eq!(y1, y2, "y coordinates are not equal");
+}
 
 pub(in super::super) fn assert_equal_g1_points<CS>(
     cs: &mut CS,

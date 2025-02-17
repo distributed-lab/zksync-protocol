@@ -8,6 +8,7 @@ use boojum::gadgets::boolean::Boolean;
 use boojum::gadgets::non_native_field::traits::NonNativeField;
 use boojum::gadgets::num::Num;
 use boojum::gadgets::traits::allocatable::CSAllocatable;
+use boojum::pairing::ff::PrimeField;
 
 use num_bigint::BigInt;
 
@@ -55,19 +56,22 @@ pub(super) fn bn254_fr_to_bigint(v: &BN256Fr) -> BigInt {
 
 /// Convert BigInt into BN254 off-circuit scalar.
 pub(super) unsafe fn bigint_to_bn254_fr(v: &BigInt) -> BN256Fr {
-    use zkevm_opcode_defs::bn254::from_hex;
-    from_hex(&v.to_str_radix(16)).unwrap()
+    BN256Fr::from_str(&v.to_str_radix(10)).unwrap()
 }
 
 pub(super) fn mux_16<F, CS>(
     cs: &mut CS,
     index: &Num<F>,
-    candidates: &Vec<&BN256BaseNNField<F>>,
+    candidates: [&BN256BaseNNField<F>; 16],
 ) -> BN256BaseNNField<F>
 where
     F: SmallField,
     CS: ConstraintSystem<F>,
 {
+    // Since bits are LSB decomposed, need to reverse candidates.
+    let mut candidates = candidates.clone();
+    candidates.reverse();
+
     let bits: [Boolean<F>; 4] = index.spread_into_bits(cs);
 
     let p0 = mux2(cs, bits[0], candidates[0], candidates[1]);
@@ -93,12 +97,16 @@ where
 pub(super) fn mux_8<F, CS>(
     cs: &mut CS,
     index: &Num<F>,
-    candidates: &Vec<&BN256BaseNNField<F>>,
+    candidates: [&BN256BaseNNField<F>; 8],
 ) -> BN256BaseNNField<F>
 where
     F: SmallField,
     CS: ConstraintSystem<F>,
 {
+    // Since bits are LSB decomposed, need to reverse candidates.
+    let mut candidates = candidates.clone();
+    candidates.reverse();
+
     let bits: [Boolean<F>; 3] = index.spread_into_bits(cs);
 
     let p0 = mux2(cs, bits[0], candidates[0], candidates[1]);

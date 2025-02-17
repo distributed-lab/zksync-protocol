@@ -12,9 +12,7 @@ E = EllipticCurve(Fp, (a, b))
 G = E(1, 2)  # Generator
 E.set_order(q)
 
-q_bitlength = q.nbits()
-nbits = (q_bitlength >> 2) + 9
-multiplicator = 2 ** (nbits - 1)
+multiplicator = 2 ** 72
 
 result = G * multiplicator
 

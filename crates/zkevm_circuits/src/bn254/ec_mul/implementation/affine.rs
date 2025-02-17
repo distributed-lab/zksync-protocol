@@ -15,7 +15,7 @@ use lazy_static::lazy_static;
 use std::sync::Arc;
 
 lazy_static! {
-    /// [64 + 9 - 1] * G
+    /// [2^SUBSCALAR_BITLENGTH] * G
     static ref GM: (BN256Fq, BN256Fq) = (
         BN256Fq::from_str(
             "20947751279411573967585707957796076884838306892329084570991215098141587145326"
@@ -28,13 +28,12 @@ lazy_static! {
     );
 }
 
+pub(super) type Affine<F> = (BN256BaseNNField<F>, BN256BaseNNField<F>);
+
 /// Computes `a + b`.
-/// Based on https://arxiv.org/pdf/math/0208038 (Section 3.1)
-pub(super) unsafe fn add<F, CS>(
-    cs: &mut CS,
-    a: &(BN256BaseNNField<F>, BN256BaseNNField<F>),
-    b: &(BN256BaseNNField<F>, BN256BaseNNField<F>),
-) -> (BN256BaseNNField<F>, BN256BaseNNField<F>)
+/// Based on https://arxiv.org/pdf/math/0208038 (Section 3.1).
+/// Marked `unsafe` as requires `a` and `b` have distinct `x` coordinates.
+pub(super) unsafe fn add<F, CS>(cs: &mut CS, a: &Affine<F>, b: &Affine<F>) -> Affine<F>
 where
     F: SmallField,
     CS: ConstraintSystem<F>,
@@ -59,10 +58,7 @@ where
 }
 
 #[inline(always)]
-pub(super) fn negate<F, CS>(
-    cs: &mut CS,
-    &(ref x, ref y): &(BN256BaseNNField<F>, BN256BaseNNField<F>),
-) -> (BN256BaseNNField<F>, BN256BaseNNField<F>)
+pub(super) fn negate<F, CS>(cs: &mut CS, &(ref x, ref y): &Affine<F>) -> Affine<F>
 where
     F: SmallField,
     CS: ConstraintSystem<F>,
@@ -74,8 +70,8 @@ where
 pub(super) fn conditioned_negate<F, CS>(
     cs: &mut CS,
     flag: Boolean<F>,
-    &(ref x, ref y): &(BN256BaseNNField<F>, BN256BaseNNField<F>),
-) -> (BN256BaseNNField<F>, BN256BaseNNField<F>)
+    &(ref x, ref y): &Affine<F>,
+) -> Affine<F>
 where
     F: SmallField,
     CS: ConstraintSystem<F>,
@@ -89,9 +85,9 @@ where
 /// Marked `unsafe` as it requires constraining result from the caller.
 pub(super) unsafe fn witness_mul<F, CS>(
     cs: &mut CS,
-    point: (&BN256BaseNNField<F>, &BN256BaseNNField<F>),
-    scalar: BN256Fr,
-) -> (BN256BaseNNField<F>, BN256BaseNNField<F>)
+    point: &Affine<F>,
+    scalar: BN256Fr, // scalar is off-circuit here as we hook it to use elsewhere
+) -> Affine<F>
 where
     F: SmallField,
     CS: ConstraintSystem<F>,
@@ -122,7 +118,7 @@ where
 #[inline(always)]
 pub(super) fn phi<F, CS>(
     cs: &mut CS,
-    (ref mut x, _): &mut (BN256BaseNNField<F>, BN256BaseNNField<F>),
+    (ref mut x, _): &mut Affine<F>,
     beta: &mut BN256BaseNNField<F>, // passing beta here to avoid multiple allocations
 ) where
     F: SmallField,
@@ -131,7 +127,8 @@ pub(super) fn phi<F, CS>(
     *x = x.mul(cs, beta);
 }
 
-pub(super) fn g<F, CS>(cs: &mut CS) -> (BN256BaseNNField<F>, BN256BaseNNField<F>)
+/// Returns `BN254` generator point.
+pub(super) fn g<F, CS>(cs: &mut CS) -> Affine<F>
 where
     F: SmallField,
     CS: ConstraintSystem<F>,
@@ -145,7 +142,8 @@ where
     (x, y)
 }
 
-pub(super) fn g_multiples<F, CS>(cs: &mut CS) -> (BN256BaseNNField<F>, BN256BaseNNField<F>)
+/// Returns `BN254` [2^72] * G.
+pub(super) fn g_multiples<F, CS>(cs: &mut CS) -> Affine<F>
 where
     F: SmallField,
     CS: ConstraintSystem<F>,
@@ -160,12 +158,9 @@ where
 }
 
 /// Computes `2a + b`.
-/// Based on https://arxiv.org/pdf/math/0208038 (Section 3.1)
-pub(super) unsafe fn double_and_add<F, CS>(
-    cs: &mut CS,
-    a: &(BN256BaseNNField<F>, BN256BaseNNField<F>),
-    b: &(BN256BaseNNField<F>, BN256BaseNNField<F>),
-) -> (BN256BaseNNField<F>, BN256BaseNNField<F>)
+/// Based on https://arxiv.org/pdf/math/0208038 (Section 3.1).
+/// Marked `unsafe` as requires `a` and `b` have distinct `x` coordinates .
+pub(super) unsafe fn double_and_add<F, CS>(cs: &mut CS, a: &Affine<F>, b: &Affine<F>) -> Affine<F>
 where
     F: SmallField,
     CS: ConstraintSystem<F>,
@@ -175,7 +170,6 @@ where
 
     let mut dx = x1.sub(cs, &mut x2);
     let mut dy = y1.sub(cs, &mut y2);
-
     let mut lambda1 = dy.div_unchecked(cs, &mut dx);
 
     let mut x3 = lambda1.clone().square(cs);
@@ -189,7 +183,8 @@ where
     lambda2 = lambda2.negated(cs);
 
     let mut x4 = lambda2.clone().square(cs);
-    x4 = x4.add(cs, &mut dx);
+    x4 = x4.sub(cs, &mut x1);
+    x4 = x4.sub(cs, &mut x3);
 
     let mut y4 = x1.sub(cs, &mut x4);
     y4 = y4.mul(cs, &mut lambda2);
@@ -201,9 +196,9 @@ where
 pub(super) fn conditionally_select<F, CS>(
     cs: &mut CS,
     flag: Boolean<F>,
-    a: &(BN256BaseNNField<F>, BN256BaseNNField<F>),
-    b: &(BN256BaseNNField<F>, BN256BaseNNField<F>),
-) -> (BN256BaseNNField<F>, BN256BaseNNField<F>)
+    a: &Affine<F>,
+    b: &Affine<F>,
+) -> Affine<F>
 where
     F: SmallField,
     CS: ConstraintSystem<F>,
@@ -214,11 +209,8 @@ where
     (x, y)
 }
 
-pub(super) fn enforce_equal<F, CS>(
-    cs: &mut CS,
-    a: &(BN256BaseNNField<F>, BN256BaseNNField<F>),
-    b: &(BN256BaseNNField<F>, BN256BaseNNField<F>),
-) where
+pub(super) fn enforce_equal<F, CS>(cs: &mut CS, a: &Affine<F>, b: &Affine<F>)
+where
     F: SmallField,
     CS: ConstraintSystem<F>,
 {

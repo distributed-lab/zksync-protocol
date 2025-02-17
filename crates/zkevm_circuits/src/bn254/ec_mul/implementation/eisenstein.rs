@@ -2,12 +2,8 @@
 //! Based on:
 //! https://github.com/Consensys/gnark-crypto/blob/master/field/eisenstein/eisenstein.go
 
-use super::utils::bn254_fr_to_bigint;
-
-use crate::bn254::BN256Fr;
-
 use num_bigint::BigInt;
-use num_traits::{One, Signed, Zero};
+use num_traits::{Euclid, One, Signed, Zero};
 use std::fmt;
 use std::ops::{Add, Mul, Neg, Sub};
 
@@ -75,11 +71,11 @@ impl fmt::Display for ComplexNumber {
     }
 }
 
-impl From<(BN256Fr, BN256Fr)> for ComplexNumber {
-    fn from(value: (BN256Fr, BN256Fr)) -> Self {
+impl From<(BigInt, BigInt)> for ComplexNumber {
+    fn from(value: (BigInt, BigInt)) -> Self {
         Self {
-            a0: bn254_fr_to_bigint(&value.0),
-            a1: bn254_fr_to_bigint(&value.1),
+            a0: value.0,
+            a1: value.1,
         }
     }
 }
@@ -117,7 +113,7 @@ impl ComplexNumber {
     pub(super) fn norm(&self) -> BigInt {
         let a0_sq = &self.a0 * &self.a0;
         let a1_sq = &self.a1 * &self.a1;
-        &a0_sq + a1_sq - (&self.a0 * &self.a1)
+        a0_sq + a1_sq - (&self.a0 * &self.a1)
     }
 
     /// Compute quotient and remainder: `(q, r) = (x ÷ y, remainder)`
@@ -132,8 +128,8 @@ impl ComplexNumber {
         let conj_y = y.conjugate();
         let numerator = x.clone() * conj_y;
         let quotient = ComplexNumber {
-            a0: &numerator.a0 / &norm_y,
-            a1: &numerator.a1 / &norm_y,
+            a0: numerator.a0.div_euclid(&norm_y),
+            a1: numerator.a1.div_euclid(&norm_y),
         };
 
         // Compute remainder: r = x - y * q
@@ -164,16 +160,16 @@ impl ComplexNumber {
         while b_run.norm() >= sqrt_n {
             let (q, r) = ComplexNumber::quo_rem(&a_run, &b_run);
 
-            let new_u = u_.clone() - (q.clone() * u.clone());
-            let new_v = v_.clone() - (q * v.clone());
+            let new_u = u.clone() - (q.clone() * u_.clone());
+            let new_v = v.clone() - (q * v_.clone());
 
             // Update values for next iteration
             a_run = b_run;
             b_run = r;
-            u_ = u;
-            v_ = v;
-            u = new_u;
-            v = new_v;
+            u = u_;
+            v = v_;
+            u_ = new_u;
+            v_ = new_v;
         }
 
         [b_run, v_, u_]

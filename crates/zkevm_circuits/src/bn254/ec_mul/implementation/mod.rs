@@ -3,7 +3,7 @@ use super::*;
 use self::affine::{
     add, conditionally_select, double_and_add, enforce_equal, g, g_multiples, witness_mul,
 };
-use self::decomposition::{BitScalarDecomposition, ScalarDecomposition};
+use self::decomposition::{BitScalarDecomposition, ScalarDecomposition, SUBSCALAR_BITLENGTH};
 use self::tables::Precomputations;
 
 use boojum::config::{CSConfig, CSWitnessEvaluationConfig};
@@ -14,9 +14,6 @@ mod decomposition;
 mod eisenstein;
 mod tables;
 mod utils;
-
-const BN254_SCALAR_PRIME_BIT_LENGTH: usize = 256;
-const NUM_MULTIPLICATION_STEPS_FOR_WIDTH_4: usize = BN254_SCALAR_PRIME_BIT_LENGTH >> 2 + 9;
 
 /// Scalar multiplication over BN254.
 pub fn mul<F, CS>(
@@ -38,7 +35,7 @@ where
         });
 
     let decomposition = ScalarDecomposition::from(cs, &mut scalar, &k);
-    let q = unsafe { witness_mul(cs, (&p.0, &p.1), k) };
+    let q = unsafe { witness_mul(cs, &p, k) };
 
     let tables = Precomputations::compute(cs, &p, &q, &decomposition);
 
@@ -46,19 +43,15 @@ where
     // acc = P + Q + φ(P) + φ(Q)
     let acc = tables.combinations[0].clone();
 
-    // Then we add generator point to acc to avoid incomplete additions in
-    // the loop, because when doing double-and-add (acc, bi) as (acc+bi)+acc it
-    // might happen that acc==bi or acc==-bi. But now we force acc to be
-    // different than the stored bi. However, at the end, acc will not be the
-    // point at infinity but [2^NUM_MULTIPLICATION_STEPS_FOR_WIDTH_4 - 1]G.
-    //
-    // N.B.: Acc cannot be equal to G, otherwise this means G = -φ²([s+1]P)
+    // To prevent same `x` coordinate in `acc` and added value,
+    // we add generator point. However, at the end,
+    // acc will be not zero, but rather [2^SUBSCALAR_BITLENGTH]G.
     let g = g(cs);
     let mut acc = unsafe { add(cs, &acc, &g) };
 
     let decomposition_bits = BitScalarDecomposition::from(cs, decomposition);
 
-    for i in (1..NUM_MULTIPLICATION_STEPS_FOR_WIDTH_4).rev() {
+    for i in (1..SUBSCALAR_BITLENGTH).rev() {
         let y_selector = decomposition_bits.selector_y(cs, i);
         let x_selector = decomposition_bits.selector_x(cs, i, &y_selector);
 
@@ -66,23 +59,26 @@ where
         let y = tables.select_y_from_combinations(cs, &y_selector);
 
         acc = unsafe { double_and_add(cs, &acc, &(x, y)) };
+
+        acc.0.normalize(cs);
+        acc.1.normalize(cs);
     }
 
     // i = 0
-    // subtract the P, Q, φ(P), φ(Q) if the first bits are 0
+    // subtract P, Q, φ(P), φ(Q) if the first bits are 0
     let acc_sub_p = unsafe { add(cs, &acc, &tables.table_p[0]) };
     let acc = conditionally_select(cs, decomposition_bits.u0_bits[0], &acc, &acc_sub_p);
 
     let acc_sub_q = unsafe { add(cs, &acc, &tables.table_q[0]) };
-    let acc = conditionally_select(cs, decomposition_bits.u1_bits[0], &acc, &acc_sub_q);
+    let acc = conditionally_select(cs, decomposition_bits.v0_bits[0], &acc, &acc_sub_q);
 
     let acc_sub_phi_p = unsafe { add(cs, &acc, &tables.table_phi_p[0]) };
-    let acc = conditionally_select(cs, decomposition_bits.v0_bits[0], &acc, &acc_sub_phi_p);
+    let acc = conditionally_select(cs, decomposition_bits.u1_bits[0], &acc, &acc_sub_phi_p);
 
     let acc_sub_phi_q = unsafe { add(cs, &acc, &tables.table_phi_q[0]) };
     let acc = conditionally_select(cs, decomposition_bits.v1_bits[0], &acc, &acc_sub_phi_q);
 
-    // Acc should be now equal to [2^NUM_MULTIPLICATION_STEPS_FOR_WIDTH_4 - 1]G
+    // Acc should be now equal to [2^SUBSCALAR_BITLENGTH]G
     let gm = g_multiples(cs);
 
     enforce_equal(cs, &acc, &gm);
