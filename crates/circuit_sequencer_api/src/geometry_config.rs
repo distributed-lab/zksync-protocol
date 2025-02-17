@@ -154,7 +154,7 @@ const fn get_geometry_config_1_5_0() -> GeometryConfig {
         cycles_per_secp256r1_verify_circuit: 4,
         cycles_per_modexp_circuit: 13,
         cycles_per_ecadd_circuit: 1424,
-        cycles_per_ecmul_circuit: 22,
+        cycles_per_ecmul_circuit: 68,
         cycles_per_ecpairing_circuit: 1,
     }
 }

@@ -1,5 +1,6 @@
 use boojum::gadgets::curves::sw_projective::extended::ExtendedSWProjectivePoint;
 use boojum::gadgets::curves::sw_projective::SWProjectivePoint;
+use boojum::gadgets::non_native_field::implementations::implementation_u16::FFProxyValue;
 use boojum::gadgets::non_native_field::implementations::{
     NonNativeFieldOverU16, NonNativeFieldOverU16Params,
 };
@@ -21,6 +22,7 @@ pub use boojum::pairing::bn256::G1Affine as BN256Affine;
 pub use boojum::pairing::bn256::G2Affine as BN256AffineTwisted;
 
 // Modules for different operations on bn256 curve
+mod conversion;
 pub mod ec_add;
 pub mod ec_mul;
 pub mod ec_pairing;
@@ -38,6 +40,9 @@ pub type BN256ScalarNNFieldParams = NonNativeFieldOverU16Params<BN256Fr, 17>;
 pub type BN256BaseNNField<F> = NonNativeFieldOverU16<F, BN256Fq, 17>;
 /// Non-native field over u16 for BN256 scalar field
 pub type BN256ScalarNNField<F> = NonNativeFieldOverU16<F, BN256Fr, 17>;
+/// Witness for BN256 base field
+pub type BN256BaseWitness = FFProxyValue<BN256Fq, 17>;
+pub type BN256ScalarWitness = FFProxyValue<BN256Fr, 17>;
 
 // P.S. we used 17 bits since 17 bits * 16 bits in u16 = 272 bits > 254 bits
 // used in BN254 (so we have some extra space to deal with)

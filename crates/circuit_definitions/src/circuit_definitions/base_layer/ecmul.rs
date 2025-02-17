@@ -128,9 +128,6 @@ where
     fn add_tables<CS: ConstraintSystem<F>>(cs: &mut CS) {
         let table = create_xor8_table();
         cs.add_lookup_table::<Xor8Table, 3>(table);
-
-        let table = create_byte_split_table::<F, 4>();
-        cs.add_lookup_table::<ByteSplitTable<4>, 3>(table);
     }
 
     fn synthesize_into_cs_inner<CS: ConstraintSystem<F>>(

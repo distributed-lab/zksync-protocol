@@ -4,7 +4,7 @@ use lazy_static::lazy_static;
 use self::{
     algebraic_torus::TorusTestCases,
     ec_add::ECAddTestCases,
-    ec_mul::{DecompositionTestCases, MultiplicationTestCases},
+    ec_mul::MultiplicationTestCases,
     ec_pairing::{FinalExpTestCases, G2TestCases, LineFunctionTestCases, PairingTestCases},
     field_extensions::{Fq12TestCases, Fq2TestCases, Fq6TestCases},
 };
@@ -20,8 +20,6 @@ pub mod types;
 lazy_static! {
     /// Test cases for EC addition
     pub static ref EC_ADD_TEST_CASES: ECAddTestCases = ec_add::load_ec_add_test_cases();
-    /// Test cases for scalar decomposition
-    pub static ref DECOMPOSITION_TEST_CASES: DecompositionTestCases = ec_mul::load_decomposition_test_cases();
     /// Test cases for scalar multiplication
     pub static ref EC_MUL_TEST_CASES: MultiplicationTestCases = ec_mul::load_multiplication_test_cases();
     /// Test cases for `Fq2` operations

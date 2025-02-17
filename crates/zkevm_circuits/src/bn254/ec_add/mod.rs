@@ -28,7 +28,9 @@ use zkevm_opcode_defs::system_params::PRECOMPILE_AUX_BYTE;
 use crate::base_structures::log_query::*;
 use crate::base_structures::memory_query::*;
 use crate::base_structures::precompile_input_outputs::PrecompileFunctionOutputData;
-use crate::bn254::ec_add::implementation::projective_add;
+use crate::bn254::conversion::{
+    convert_field_element_to_uint256, convert_uint256_to_field_element,
+};
 use crate::bn254::ec_add::input::EcAddCircuitInputOutput;
 use crate::bn254::validation::{is_affine_infinity, is_on_curve, validate_in_field};
 use crate::demux_log_queue::StorageLogQueue;
@@ -39,9 +41,6 @@ use crate::storage_application::ConditionalWitnessAllocator;
 
 use super::*;
 
-use self::ec_mul::implementation::{
-    convert_field_element_to_uint256, convert_uint256_to_field_element,
-};
 use self::input::EcAddCircuitInstanceWitness;
 
 pub mod implementation;
